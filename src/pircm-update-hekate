@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PAYLOAD_DIR="/opt/pircm/payloads"
+PAYLOAD_FILE="$PAYLOAD_DIR/hekate.bin"
+API_URL="https://api.github.com/repos/CTCaer/hekate/releases/latest"
+TMP_FILE="$(mktemp)"
+
+cleanup() {
+    rm -f "$TMP_FILE"
+}
+trap cleanup EXIT
+
+if [[ "${EUID}" -ne 0 ]]; then
+    echo "Run with: sudo pircm-update-hekate" >&2
+    exit 1
+fi
+
+command -v curl >/dev/null
+command -v jq >/dev/null
+
+echo "[PiRCM] Checking the latest official Hekate release..."
+RELEASE_JSON="$(curl -fsSL \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28' \
+    "$API_URL")"
+
+VERSION="$(jq -er '.tag_name' <<< "$RELEASE_JSON")"
+DOWNLOAD_URL="$(jq -er \
+    '.assets[] | select(.name | test("^hekate_ctcaer_[0-9]+(\\.[0-9]+)+\\.bin$")) | .browser_download_url' \
+    <<< "$RELEASE_JSON" | head -n 1)"
+
+if [[ -z "$DOWNLOAD_URL" || "$DOWNLOAD_URL" == "null" ]]; then
+    echo "Could not find the standard Hekate payload in release $VERSION." >&2
+    exit 1
+fi
+
+install -d -m 0755 "$PAYLOAD_DIR"
+echo "[PiRCM] Downloading Hekate $VERSION..."
+curl -fL --retry 3 --retry-delay 2 "$DOWNLOAD_URL" -o "$TMP_FILE"
+
+if [[ ! -s "$TMP_FILE" ]]; then
+    echo "Downloaded Hekate file is empty; keeping the existing payload." >&2
+    exit 1
+fi
+
+install -m 0644 "$TMP_FILE" "$PAYLOAD_FILE"
+echo "[PiRCM] Hekate $VERSION installed as $PAYLOAD_FILE."
+
+/usr/local/bin/pircm-select hekate.bin
+echo "[PiRCM] Hekate $VERSION is now selected."
