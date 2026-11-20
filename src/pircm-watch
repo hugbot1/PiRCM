@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_DIR="/opt/pircm"
+PAYLOAD_DIR="$APP_DIR/payloads"
+INJECTOR="$APP_DIR/fusee-nano/fusee-nano"
+CONFIG="/etc/pircm/pircm.conf"
+VIDPID="0955:7321"
+
+PAYLOAD=""
+POLL_INTERVAL=1
+RETRY_DELAY=3
+
+if [[ -f "$CONFIG" ]]; then
+  # Config is deliberately parsed as simple KEY=value, not sourced as shell.
+  while IFS='=' read -r key value; do
+    case "$key" in
+      PAYLOAD) PAYLOAD="$value" ;;
+      POLL_INTERVAL) POLL_INTERVAL="$value" ;;
+      RETRY_DELAY) RETRY_DELAY="$value" ;;
+    esac
+  done < <(grep -E '^[A-Z_]+=' "$CONFIG" || true)
+fi
+
+if [[ ! "$POLL_INTERVAL" =~ ^[0-9]+$ ]] || (( POLL_INTERVAL < 1 )); then
+  POLL_INTERVAL=1
+fi
+if [[ ! "$RETRY_DELAY" =~ ^[0-9]+$ ]] || (( RETRY_DELAY < 1 )); then
+  RETRY_DELAY=3
+fi
+
+is_apx_connected() {
+  lsusb -d "$VIDPID" >/dev/null 2>&1
+}
+
+echo "[PiRCM] Watching for Switch APX device ($VIDPID)."
+while true; do
+  if is_apx_connected; then
+    if [[ -z "$PAYLOAD" ]]; then
+      echo "[PiRCM] APX detected, but no payload is selected. Run: sudo pircm-select filename.bin"
+      sleep "$RETRY_DELAY"
+      continue
+    fi
+
+    PAYLOAD_PATH="$PAYLOAD_DIR/$PAYLOAD"
+    if [[ ! -f "$PAYLOAD_PATH" ]]; then
+      echo "[PiRCM] Selected payload not found: $PAYLOAD_PATH"
+      sleep "$RETRY_DELAY"
+      continue
+    fi
+    if [[ ! -x "$INJECTOR" ]]; then
+      echo "[PiRCM] Injector binary missing. Re-run ./install.sh."
+      sleep "$RETRY_DELAY"
+      continue
+    fi
+
+    echo "[PiRCM] APX detected. Injecting $PAYLOAD..."
+    set +e
+    "$INJECTOR" "$PAYLOAD_PATH"
+    rc=$?
+    set -e
+    if [[ $rc -eq 0 ]]; then
+      echo "[PiRCM] Injector exited successfully."
+    else
+      echo "[PiRCM] Injector exited with status $rc."
+    fi
+
+    # Wait for APX to disconnect before another injection attempt.
+    while is_apx_connected; do
+      sleep "$POLL_INTERVAL"
+    done
+    echo "[PiRCM] APX disconnected. Waiting for next connection."
+  else
+    sleep "$POLL_INTERVAL"
+  fi
+done

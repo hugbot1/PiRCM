@@ -1,0 +1,17 @@
+[Unit]
+Description=PiRCM Nintendo Switch RCM payload injector
+After=local-fs.target
+Wants=systemd-udev-settle.service
+After=systemd-udev-settle.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pircm-watch
+Restart=always
+RestartSec=2
+User=root
+Group=root
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

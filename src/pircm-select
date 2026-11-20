@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+DIR="/opt/pircm/payloads"
+CONF="/etc/pircm/pircm.conf"
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "Run with sudo: sudo pircm-select filename.bin" >&2
+  exit 1
+fi
+
+if [[ "${1:-}" == "--list" ]]; then
+  find "$DIR" -maxdepth 1 -type f -name '*.bin' -printf '%f\n' | sort
+  exit 0
+fi
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: sudo pircm-select filename.bin"
+  echo "       sudo pircm-select --list"
+  exit 2
+fi
+
+name="$1"
+if [[ "$name" != "$(basename -- "$name")" || "$name" != *.bin ]]; then
+  echo "Provide a .bin filename only (not a path)." >&2
+  exit 2
+fi
+if [[ ! -f "$DIR/$name" ]]; then
+  echo "Payload not found: $DIR/$name" >&2
+  exit 1
+fi
+
+touch "$CONF"
+if grep -q '^PAYLOAD=' "$CONF"; then
+  sed -i "s|^PAYLOAD=.*|PAYLOAD=$name|" "$CONF"
+else
+  printf '\nPAYLOAD=%s\n' "$name" >> "$CONF"
+fi
+systemctl restart pircm.service
+echo "Selected payload: $name"

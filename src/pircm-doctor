@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+echo "=== PiRCM diagnostics ==="
+echo
+echo "[System]"
+grep -E 'Model|PRETTY_NAME' /proc/device-tree/model /etc/os-release 2>/dev/null || true
+echo
+echo "[USB APX device]"
+if command -v lsusb >/dev/null 2>&1; then
+  lsusb -d 0955:7321 || echo "No APX device currently detected (0955:7321)."
+else
+  echo "lsusb is missing; install usbutils."
+fi
+echo
+echo "[Injector]"
+if [[ -x /opt/pircm/fusee-nano/fusee-nano ]]; then
+  echo "fusee-nano binary exists."
+else
+  echo "fusee-nano binary missing; run the installer."
+fi
+echo
+echo "[Selected payload]"
+if [[ -f /etc/pircm/pircm.conf ]]; then
+  grep '^PAYLOAD=' /etc/pircm/pircm.conf || echo "No payload selected."
+else
+  echo "Configuration file missing."
+fi
+echo
+echo "[Service]"
+systemctl --no-pager --full status pircm.service || true
